@@ -17,13 +17,9 @@ import os, ConfigParser,argparse, urllib2, time, csv
 import xml.etree.ElementTree as ET
 import sys, subprocess
 
-try:
-    import eyeD3
-except:
-    print 'Installer python-eyed3'
-    sys.exit(1)
+import eyed3
 
-
+import re
 
 PROG    = "podrf"
 VERSION = "0.1"
@@ -40,8 +36,10 @@ def process_command_line():
     """
     parser = argparse.ArgumentParser(prog=PROG, description = DESCRIPTION,  
         formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('FILE_CONFIG', type = str , help='fichier de configaration, défaut = ~/.podcasts.cfg' , 
-        nargs='?', default =  os.path.join(os.getenv("HOME"), ".podcasts.cfg") )
+    parser.add_argument('FILE_CONFIG', type = str , help='fichier de configaration, défaut = ./config.cfg' , 
+        nargs='?', default =  "./config.cfg" )
+        #nargs='?', default =  os.path.join(os.getenv("HOME"), "./config.cfg") )
+
     parser.add_argument('-n', dest = "NOMBRE", type = int , 
         help='nombres de podcasts à charger pour chaque émission'   )
     parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + VERSION)
@@ -239,16 +237,27 @@ def download_podcasts(emission, arrPodcasts, params):
     for pc in arrPodcasts:
         #file_size_server = int(pc['length'])
         #la size annoncé par le dictionnaire n'est pas la size réelle du fichier à télécharger
-        racine  = emission['nom'] + '-' + pc['date'] 
+        date  = pc['date'] 
+        year = date[:4]
+        month = date[4:6]
+        day = date[6:8]
+
+        formatedDate = year + '.' + month + '.' + day
+
+        print emission
+        print pc
+
+
+        #date  = emission['nom'] + '-' + pc['date'] 
         title   = clean_file_name(pc['title'])
-        pc_file = racine + '-' + title + '.mp3'
+        pc_file = formatedDate + ' - ' + title + '.mp3'
         pc_dir  = os.path.join(params['save_dir'], emission['nom'])
 
         if not os.path.isdir(pc_dir):
             print 'Création dossier : ' + pc_dir 
             os.makedirs(pc_dir)
             
-        print racine + ' : ' + title 
+        print formatedDate + ' : ' + title 
         file_name = os.path.join(pc_dir, pc_file)
         file_name_tmp = file_name + '.tmp'
 
@@ -303,45 +312,72 @@ def download_podcasts(emission, arrPodcasts, params):
             subprocess.call(args)
             os.rename (  file_name + '.tmp.mp3' ,  file_name )
 
-
-        #tag 
-        tag = eyeD3.Tag()
-        tag.link(file_name)#, eyeD3.ID3_V2) default = ANY
-        tag.remove()
-        tag.removeComments()
-        tag.removeImages()
-        tag.removeLyrics()
-        tag.removeUserTextFrame('TDAT')
-        tag.removeUserTextFrame('TRDA')
-        #tag.removeUserTextFrame('WOAF')
-
-        tag.setTitle(clean_title(pc['title']))
+        audiofile = eyed3.load(file_name)
 
         if 'year' in pc.keys():
-            tag.setDate(pc['year'])
+            audiofile.tag.year = pc['year']
 
         if 'artist' in emission.keys():
-            tag.setArtist(emission['artist'])
+            audiofile.tag.artist = emission['artist']
+            audiofile.tag.album_artist = emission['artist']
 
-        if 'album' in emission.keys():            
-            tag.setAlbum(emission['album'])
+        if 'nom' in emission.keys():            
+            audiofile.tag.album = unicode(clean_title(emission['nom']).decode('utf8'))
 
         if 'genre' in emission.keys():            
-            tag.setGenre(emission['genre'])
+            audiofile.tag.genre = emission['genre']
 
-        #utf8 march pas avec v2.3
-        tag.header.setVersion(eyeD3.ID3_V2_4)
-        tag.setTextEncoding(eyeD3.UTF_8_ENCODING )
+        audiofile.tag.title = unicode(clean_title(pc['title']).decode('utf8'))
 
-            
+        print audiofile.tag.year
+        print audiofile.tag.artist
+        print audiofile.tag.album
+        print audiofile.tag.genre
+        print audiofile.tag.title
+
+
         try:        
-            tag.update()
+            audiofile.tag.save()
         except:
             print '*** Erreur écriture tag ***'
 
+        #tag 
+        # tag = eyed3.Tag()
+        # tag.link(file_name)#, eyed3.ID3_V2) default = ANY
+        # tag.remove()
+        # tag.removeComments()
+        # tag.removeImages()
+        # tag.removeLyrics()
+        # tag.removeUserTextFrame('TDAT')
+        # tag.removeUserTextFrame('TRDA')
+        # #tag.removeUserTextFrame('WOAF')
+
+        # tag.setTitle(clean_title(pc['title']))
+
+        # if 'year' in pc.keys():
+        #     tag.setDate(pc['year'])
+
+        # if 'artist' in emission.keys():
+        #     tag.setArtist(emission['artist'])
+
+        # if 'album' in emission.keys():            
+        #     tag.setAlbum(emission['album'])
+
+        # if 'genre' in emission.keys():            
+        #     tag.setGenre(emission['genre'])
+
+        # #utf8 march pas avec v2.3
+        # tag.header.setVersion(eyed3.ID3_V2_4)
+        # tag.setTextEncoding(eyed3.UTF_8_ENCODING )
+
+        # try:        
+        #     tag.update()
+        # except:
+        #     print '*** Erreur écriture tag ***'
+
         #inscrit le fichier téléchargé dans le catalogue
         fcat = open(params['catalogue'],"a")
-        fcat.write(pc_file + ";" + pc['length'] + ";\n")
+        fcat.write(pc_file + "; " + pc['guid'] + "; " + pc['year'] + ";\n")
         fcat.close()
 
 
@@ -352,6 +388,8 @@ def download_podcasts(emission, arrPodcasts, params):
 
 def main():
     args = process_command_line()
+    print args.FILE_CONFIG
+
     params, arrEmissions = parse_config_file(args.FILE_CONFIG)
     #print "args      : ", args
     #print "params    : ", params
