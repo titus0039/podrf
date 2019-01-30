@@ -28,7 +28,7 @@ voir fichier config.txt pour plus d'infos
 
 dépendances :
 
-    python-eyed3
+    eyed3
     avconv
 
 contact :
