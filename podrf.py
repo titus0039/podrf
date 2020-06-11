@@ -13,7 +13,10 @@ python-eyed3 pour le taggage
 #emission  = nom de l'émission, quelque soit la date
 #podcast   = émission pour un jour donné
 
-import os, ConfigParser,argparse, urllib2, time, csv
+import os, configparser, argparse, time, csv
+
+from urllib.request import urlopen 
+
 import xml.etree.ElementTree as ET
 import sys, subprocess
 
@@ -36,18 +39,19 @@ def process_command_line():
     """
     parser = argparse.ArgumentParser(prog=PROG, description = DESCRIPTION,  
         formatter_class=argparse.RawTextHelpFormatter)
+
     parser.add_argument('FILE_CONFIG', type = str , help='fichier de configaration, défaut = ./config.cfg' , 
-        nargs='?', default =  "./config.cfg" )
+        nargs='?', default =  "./config.cfg")
         #nargs='?', default =  os.path.join(os.getenv("HOME"), "./config.cfg") )
 
     parser.add_argument('-n', dest = "NOMBRE", type = int , 
-        help='nombres de podcasts à charger pour chaque émission'   )
+        help='nombres de podcasts à charger pour chaque émission')
+
     parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + VERSION)
 
     args = parser.parse_args()
-    args.NOMBRE    = args.NOMBRE or None
+    args.NOMBRE = args.NOMBRE or None
     return args
-
 
 
 
@@ -57,19 +61,22 @@ def parse_config_file(config_file):
     necessité d'une section ['paramètres']
     """
     if not os.path.isfile(config_file):
-        print 'Erreur fichier de configuration :', config_file
+        print ('Erreur fichier de configuration :', config_file)
         exit (1)
     dict = {}
-    config = ConfigParser.RawConfigParser(dict)
+
+    config = configparser.RawConfigParser(dict)
+
     try:
         config.read(config_file)
     except:
-        print 'Problème lecture %s : mauvaise structure ?' % config_file
+        print ('Problème lecture %s : mauvaise structure ?' % config_file)
         exit (1)
+
     arrSections = config.sections()
 
     if not 'paramètres' in arrSections:
-        print 'Section \'paramètres\' manquante dans ', config_file
+        print ('Section \'paramètres\' manquante dans ', config_file)
         exit(1)
 
     arrSections.remove('paramètres')
@@ -78,24 +85,24 @@ def parse_config_file(config_file):
     if config.has_option('paramètres', 'dossier'):
         params['save_dir']  = config.get('paramètres', 'dossier')
     else:
-        print 'Paramètre \'dossier\' non défini.'
+        print ('Paramètre \'dossier\' non défini.')
         exit (1)
         
     if config.has_option('paramètres', 'catalogue'):
         params['catalogue'] = config.get('paramètres', 'catalogue')
     else:
-        print 'Paramètre \'catalogue\' non défini.'
+        print ('Paramètre \'catalogue\' non défini.')
         exit (1)
-
 
     #vérifie si chaque émission à une url
     #et met chaque émission dans un dictionnaire
-    arrEmissions =[]
+    arrEmissions = []
+
     for s in arrSections:
         if not config.has_option(s, 'url') : #.lower() not in config[s] :
-            print "Manque url sur émission " , s
+            print ('Manque url sur émission ' , s)
             exit(1)
-        arrEmissions.append({'nom' :s})    
+        arrEmissions.append({'nom': s})    
         for v in [ "url", "bitrate", "channels", "artist", "album", "genre"]:
             if config.has_option(s, v):
                 arrEmissions[len(arrEmissions)-1][v] = config.get(s,v)
@@ -112,13 +119,13 @@ def check_params(params):
     if not os.path.isdir( params['save_dir']):
         try:
             os.makedirs( params['save_dir'])
-            print 'Création du dossier ', params['save_dir']
+            print ('Création du dossier ', params['save_dir'])
         except:
-            print 'Impossible de créer le dossier ' + params['save_dir']
+            print ('Impossible de créer le dossier ' + params['save_dir'])
             exit (1)
 
     if not os.path.isfile( params['catalogue'] ):
-        print 'Le fichier %s sera créé' % params['catalogue'] 
+        print ('Le fichier %s sera créé' % params['catalogue'] )
         arrCatalogue = []
     else :
         f = open(params['catalogue'])
@@ -130,20 +137,19 @@ def check_params(params):
 
 
 
-
-
 def lecture_rss(emission, arrCatalogue, nombre):
     """
     lit le flux rss de l'émission et retourne les infos
     dans un tableau
     """
     code, url = emission['nom'], emission['url'] 
-    rss = urllib2.urlopen(url)
-    print "-" * 30
-    print "\n%s : %s \n" % (code , url )
+    rss = urlopen(url).read()
+    print ("-" * 30)
+    print ("\n%s : %s \n" % (code , url ))
     
-    tree = ET.parse(rss)
-    root = tree.getroot()
+    #tree = ET.parse(rss)
+    #root = tree.getroot()
+    root = ET.fromstring(rss)
     idx = 1
     
     arrPodcasts = []
@@ -152,19 +158,19 @@ def lecture_rss(emission, arrCatalogue, nombre):
     #création catalogue avec dl True or False
     for item in root.findall('./channel/item'): #pas de dernier /
         podcast = {  \
-              'title'  : unicode(item.find('title').text).encode('utf-8').strip() , \
+              'title'  : item.find('title').text.strip() , \
               'date'   : item.find('pubDate').text ,  \
-              'guid'   : item.find('guid').text , \
-              'length' : item.find('enclosure').get('length')
+              'length' : item.find('enclosure').get('length'), \
+              'url'    : item.find('enclosure').get('url')
               }
               
         #converions date au format AAAAMMJJ
         #descr['date'][:-6] remove offset UTC, %z fonctionne pas avec strptime
         outDate = time.strptime(podcast['date'][:-6], "%a, %d %b %Y %H:%M:%S")
         outDate = time.strftime( "%Y%m%d", outDate)
-        podcast['year'] = time.strftime( "%Y")
+        podcast['year'] = time.strftime("%Y")
         podcast['date'] = outDate
-        
+
         arrPodcasts.append(podcast)
 
         racine  = code + '-' + podcast['date']
@@ -184,13 +190,13 @@ def lecture_rss(emission, arrCatalogue, nombre):
 
             sizeCat  = item[1]
             if racineCat == racine and sizeCat == podcast['length']:
-                print racine + ' : déjà présent dans le catalogue'
+                print (racine + ' : déjà présent dans le catalogue')
                 flagDL  = False
                 break
 
         if not flagDL :
             arrPodcasts.remove(podcast)
-#        print podcast['title'], index, flagDL, len(arrPodcasts)
+#        :wprint podcast['title'], index, flagDL, len(arrPodcasts)
         if nombre !=None and index >= nombre:
             break
         index += 1 
@@ -199,12 +205,11 @@ def lecture_rss(emission, arrCatalogue, nombre):
 
 
 
-
-
 def clean_file_name(nom):
     """
     supprime les caractères superflus du nom de l'émission
     """
+    nom = str(nom)
     nom = nom.replace('\\"', '"')
     nom = nom.replace('?', '_')
     nom = nom.replace('’', '\'')
@@ -218,13 +223,10 @@ def clean_title(nom):
     """
     supprime les caractères superflus ou incompatibles dans le titre du tag
     """
+    nom = str(nom)
     nom = nom.replace('’', '\'')
     nom = nom.replace('…', '...')
     return nom
-
-
-
-
 
 
 
@@ -233,7 +235,8 @@ def download_podcasts(emission, arrPodcasts, params):
     télécharge les podcast, le convertit si nécessaire,
     le tag si nécessaire
     """
-    print '\nTéléchargements :', len(arrPodcasts), 'fichier(s)'
+    print ('\nTéléchargements :', len(arrPodcasts), 'fichier(s)')
+    
     for pc in arrPodcasts:
         #file_size_server = int(pc['length'])
         #la size annoncé par le dictionnaire n'est pas la size réelle du fichier à télécharger
@@ -243,10 +246,9 @@ def download_podcasts(emission, arrPodcasts, params):
         day = date[6:8]
 
         formatedDate = year + '.' + month + '.' + day
-
-        print emission
-        print pc
-
+        
+        print ('emision: ', emission)
+        print ('pc: ', pc)
 
         #date  = emission['nom'] + '-' + pc['date'] 
         title   = clean_file_name(pc['title'])
@@ -254,17 +256,18 @@ def download_podcasts(emission, arrPodcasts, params):
         pc_dir  = os.path.join(params['save_dir'], emission['nom'])
 
         if not os.path.isdir(pc_dir):
-            print 'Création dossier : ' + pc_dir 
+            print ('Création dossier : ' + pc_dir )
             os.makedirs(pc_dir)
             
-        print formatedDate + ' : ' + title 
+        print (formatedDate + ' : ' + title)
+
         file_name = os.path.join(pc_dir, pc_file)
         file_name_tmp = file_name + '.tmp'
 
         # Download the file from `url` and save it locally under `file_name`:
-        response = urllib2.urlopen(pc['guid']) 
+        response = urlopen(pc['url'])
 
-        file_size_server = int(response.headers['content-length'])
+        file_size_server = int(response.info()['content-length'])
 
         CHUNK = 16*1024
         bytes_so_far = 0.0
@@ -288,9 +291,9 @@ def download_podcasts(emission, arrPodcasts, params):
                 
         file_size =  os.path.getsize(file_name)
         if file_size != file_size_server:
-            print '\tWarning'
-            print '\tTaille fichier serveur : ', file_size_server
-            print '\tTaille fichier local   : ', file_size
+            print ('\tWarning')
+            print ('\tTaille fichier serveur : ', file_size_server)
+            print ('\tTaille fichier local   : ', file_size)
 
         #convertir le fichier si nécessaire
         args = ['avconv', '-y', '-loglevel', 'error' , '-i', file_name]
@@ -314,32 +317,29 @@ def download_podcasts(emission, arrPodcasts, params):
 
         audiofile = eyed3.load(file_name)
 
-        if 'year' in pc.keys():
-            audiofile.tag.year = pc['year']
-
         if 'artist' in emission.keys():
             audiofile.tag.artist = emission['artist']
             audiofile.tag.album_artist = emission['artist']
 
         if 'nom' in emission.keys():            
-            audiofile.tag.album = unicode(clean_title(emission['nom']).decode('utf8'))
+            audiofile.tag.album = clean_title(emission['nom'])
 
         if 'genre' in emission.keys():            
             audiofile.tag.genre = emission['genre']
 
-        audiofile.tag.title = unicode(clean_title(pc['title']).decode('utf8'))
+        audiofile.tag.title = clean_title(pc['title'])
 
-        print audiofile.tag.year
-        print audiofile.tag.artist
-        print audiofile.tag.album
-        print audiofile.tag.genre
-        print audiofile.tag.title
-
+        #print ('tag artiste ', audiofile.tag.artist)
+        #print ('tag albun ', audiofile.tag.album)
+        #print ('tag genre ', audiofile.tag.genre)
+        #print ('tag title ', audiofile.tag.title)
+        print (' ')
+        
 
         try:        
             audiofile.tag.save()
         except:
-            print '*** Erreur écriture tag ***'
+            print ('*** Erreur écriture tag ***')
 
         #tag 
         # tag = eyed3.Tag()
@@ -373,45 +373,37 @@ def download_podcasts(emission, arrPodcasts, params):
         # try:        
         #     tag.update()
         # except:
-        #     print '*** Erreur écriture tag ***'
+        #     print ('*** Erreur écriture tag ***'
 
         #inscrit le fichier téléchargé dans le catalogue
         fcat = open(params['catalogue'],"a")
-        fcat.write(pc_file + "; " + pc['guid'] + "; " + pc['year'] + ";\n")
+        fcat.write(pc_file + ";\n")
         fcat.close()
-
-
-
-
 
 
 
 def main():
     args = process_command_line()
-    print args.FILE_CONFIG
-
     params, arrEmissions = parse_config_file(args.FILE_CONFIG)
-    #print "args      : ", args
-    #print "params    : ", params
-    #print "émissions : ", arrEmissions
-    if len(arrEmissions) == 0:
-        print "Rien à faire ... (pas d\'émissions dans %s )" %  args.FILE_CONFIG
-        exit ()
 
-    arrCatalogue = check_params (params)
+    if len(arrEmissions) == 0:
+        print ("Rien à faire ... (pas d\'émissions dans %s )" %  args.FILE_CONFIG)
+        exit()
+
+    arrCatalogue = check_params(params)
 
     #affichage info
-    print "\n== PARAMÈTRES =="
-    print "fichier configuration   : %s" % args.FILE_CONFIG
-    print "                          %d émissions" % len(arrEmissions)
-    print "dossier enregistrements : %s" % params['save_dir']
-    print "fichier catalogue       : %s" % params['catalogue']
-    print "                          %d lignes" % len(arrCatalogue)
-    print "\n"
+    print ("\n== PARAMÈTRES ==")
+    print ("fichier configuration   : %s" % args.FILE_CONFIG)
+    print ("                          %d émissions" % len(arrEmissions))
+    print ("dossier enregistrements : %s" % params['save_dir'])
+    print ("fichier catalogue       : %s" % params['catalogue'])
+    print ("                          %d lignes" % len(arrCatalogue))
+    print ("\n")
     
     #boucle sur émissions
     for emission in arrEmissions:
-        arrPodcasts = lecture_rss (emission, arrCatalogue, args.NOMBRE)
+        arrPodcasts = lecture_rss(emission, arrCatalogue, args.NOMBRE)
         download_podcasts(emission, arrPodcasts, params)    
 
     return 0
@@ -420,3 +412,4 @@ def main():
 if __name__ == "__main__":
     status = main()
     exit(status)
+
